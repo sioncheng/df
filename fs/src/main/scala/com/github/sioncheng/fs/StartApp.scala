@@ -1,7 +1,9 @@
 package com.github.sioncheng.fs
 
-import com.twitter.zk.Connector.EventHandler
 import org.apache.zookeeper.Watcher.Event.KeeperState
+import org.apache.zookeeper.ZooDefs.Ids
+
+import scala.collection.JavaConverters
 
 object StartApp extends App {
 
@@ -19,13 +21,14 @@ object StartApp extends App {
         case x => println(x)
             println(x.state == KeeperState.SyncConnected)
     }
-    zk.onSessionEvent (pf)
+    zk.onSessionEvent(pf)
 
     println(zk.name)
 
-    zk.apply()
-    zk.wait(10000)
-
+    val zNode = zk.apply("/root")
+    val acl =  JavaConverters.asScalaBuffer(Ids.OPEN_ACL_UNSAFE)
+    zNode.exists.apply().onSuccess(z => println(s"exists ? ${z}"))
+    zNode.create(acls = acl).onSuccess(z => println(s"success ${z.name}")).onFailure(z => println(z.getMessage))
 
     io.StdIn.readLine()
 }
