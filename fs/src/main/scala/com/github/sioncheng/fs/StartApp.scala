@@ -1,31 +1,20 @@
 package com.github.sioncheng.fs
 
-import java.net.{InetAddress, InetSocketAddress}
-import java.nio.charset.Charset
-
-import com.loopfor.zookeeper.{ACL, AsynchronousZookeeper, Configuration, Ephemeral, SynchronousZookeeper, Zookeeper}
-import org.apache.zookeeper.ZooDefs.Ids
-
-import scala.collection.JavaConverters
+import akka.actor.{ActorSystem, Props}
+import com.github.sioncheng.fs.act.LeadElectionActor
 
 
 object StartApp extends App {
 
     println("fs app")
 
-    val servers = List(new InetSocketAddress("127.0.0.1", 2181))
-    val conf = Configuration(servers)
+    val systemName = "com.github.sioncheng.fs".replace(".","_")
 
-    val zk = Zookeeper(conf)
+    val actorSystem = ActorSystem(systemName)
 
-    val client = zk.sync
-
-    if(!client.exists("/root").isEmpty) {
-        println(client.create("/root/a",
-            "".getBytes(),
-            ACL.AnyoneAll,
-            Ephemeral))
-    }
+    val electionActor = actorSystem.actorOf(Props[LeadElectionActor])
 
     io.StdIn.readLine()
+
+    actorSystem.terminate()
 }
