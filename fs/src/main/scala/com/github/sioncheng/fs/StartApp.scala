@@ -1,7 +1,7 @@
 package com.github.sioncheng.fs
 
 import akka.actor.{ActorSystem, Props}
-import com.github.sioncheng.fs.act.LeadElectionActor
+import com.github.sioncheng.fs.act.ZookeeperActor
 
 
 object StartApp extends App {
@@ -12,7 +12,7 @@ object StartApp extends App {
 
     val actorSystem = ActorSystem(systemName)
 
-    val electionActor = actorSystem.actorOf(Props[LeadElectionActor])
+    val electionActor = actorSystem.actorOf(Props[ZookeeperActor])
 
     io.StdIn.readLine()
 
