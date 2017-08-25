@@ -3,14 +3,19 @@ package com.github.sioncheng.fs.act
 import java.net.InetSocketAddress
 
 import akka.actor.Actor
+import akka.event.Logging
 import com.loopfor.zookeeper.{ACL, Configuration, EphemeralSequential, NodeEvent, Persistent, StateEvent, Zookeeper}
 import org.apache.zookeeper.KeeperException.NoNodeException
+import org.slf4j.{Logger, LoggerFactory}
 
 import scala.util.{Failure, Success}
 
 class ZookeeperActor extends Actor {
 
     val MASTER = "/master"
+    val WORKER = "/workers"
+
+    val logger = Logging(context.system, classOf[ZookeeperActor])
 
     override def preStart(): Unit = {
         val servers = List(new InetSocketAddress("127.0.0.1", 2181))
@@ -22,35 +27,35 @@ class ZookeeperActor extends Actor {
         import scala.concurrent.ExecutionContext.Implicits.global
         val asClient = zk.async
 
-        asClient.exists(MASTER).onComplete {
-            case Success(v) => {
-                println("/master exists")
-                println(v)
-                createMasterFlag()
-            }
-            case Failure(e) => {
-                if (e.isInstanceOf[NoNodeException]) {
-                    println("no /master")
-                    createMaster()
-                } else {
-                    println("check /master failure")
-                    e.printStackTrace()
-                }
-            }
-        }
+        createIfNotExists(WORKER,())
 
-        def createMaster(): Unit = {
-            asClient.create(MASTER,
-                "".getBytes() ,
-                ACL.AnyoneAll,
-                Persistent).onComplete {
-                case Success(v) =>
-                    println("create master success")
-                    println(v)
-                    createMasterFlag()
-                case Failure(e) =>
-                    println("create master failure")
-                    e.printStackTrace()
+        createIfNotExists(MASTER, createMasterFlag())
+
+
+        def createIfNotExists(path: String, f: => Unit): Unit = {
+            asClient.exists(path).onComplete {
+                case Success(v) => {
+                    logger.info(s"$path exists $v")
+                    f
+                }
+                case Failure(e) => {
+                    if (e.isInstanceOf[NoNodeException]) {
+                        logger.info(s"no $path then create it")
+                        asClient.create(path,
+                            "".getBytes() ,
+                            ACL.AnyoneAll,
+                            Persistent).onComplete {
+                            case Success(v) =>
+                                logger.info(s"create $path success $v")
+                                f
+                            case Failure(e) =>
+                                logger.error(s"create $path failure", e)
+                        }
+
+                    } else {
+                        logger.error(s"check $path failure", e)
+                    }
+                }
             }
         }
 
@@ -60,12 +65,11 @@ class ZookeeperActor extends Actor {
                 ACL.AnyoneAll,
                 EphemeralSequential).onComplete {
                 case Success(value) => {
-                    println(s"success $value")
+                    logger.info(s"success $value")
                     checkLeader(value)
                 }
                 case Failure(e) => {
-                    println("failure")
-                    e.printStackTrace()
+                    logger.error("create master flag error", e)
                 }
             }
         }
@@ -73,30 +77,30 @@ class ZookeeperActor extends Actor {
         def checkLeader(value:String): Unit = {
             asClient.children(MASTER).onComplete {
                 case Success(vv) => {
-                    println(s"children $vv")
+                    logger.info(s"children $vv")
                     val num = value.substring(s"$MASTER/".length)
-                    println(num)
                     val children = vv._1.sorted
                     if (children.isEmpty || children.head.equalsIgnoreCase(num)) {
-                        println("i am the leader")
+                        logger.info("i am the leader")
                     } else {
-                        println("oops, i am not the leader.")
+                        logger.info("oops, i am not the leader.")
 
                         asClient.watch {
                             case e: NodeEvent => {
-                                println(s"node event $e")
+                                logger.info(s"node event $e")
                                 checkLeader(value)
                             }
-                            case e: StateEvent => println(s"state event $e")
+                            case e: StateEvent => logger.info(s"state event $e")
                         }.children(MASTER).onComplete {
-                            case Success(vvv) => println(vvv)
-                            case Failure(eee) => eee.printStackTrace()
+                            case Success(vvv) =>
+                                logger.info(s"$vvv")
+                            case Failure(eee) =>
+                                logger.error(s"watch $MASTER err", eee)
                         }
                     }
                 }
                 case Failure(ee) => {
-                    println("failure")
-                    ee.printStackTrace()
+                    logger.error("failure", ee)
                 }
             }
         }
@@ -104,6 +108,6 @@ class ZookeeperActor extends Actor {
     }
 
     override def receive: Receive = {
-        case x => println(x)
+        case x => logger.info(s"receive $x")
     }
 }
