@@ -3,20 +3,35 @@ package com.github.sioncheng.fs.act
 import akka.actor.Actor
 import akka.event.Logging
 
+
+trait MainStatus
+case object Unknown extends MainStatus
+case object Leading extends MainStatus
+case object Working extends MainStatus
+case class Losing(val prev: MainStatus) extends MainStatus
+
 class MainActor extends Actor {
 
     val logger = Logging(context.system, classOf[MainActor])
 
+    var status: MainStatus = Unknown
+
     override def receive: Receive = {
         case _ @ Leader() =>
-            logger.info("playing as a leader")
+            status = Leading
+            logger.info(s"my status $status")
         case _ @ Worker() =>
-            logger.info("playing as a worker")
+            status = Working
+            logger.info(s"my status $status")
         case _ @ Lost() =>
-            logger.warning("lost, can't do anything")
+            status = Losing(status)
+            logger.warning(s"my status $status")
         case _ @ Return() =>
-            logger.warning("ha, i am back.")
+            status = status.asInstanceOf[Losing].prev
+            logger.warning(s"ha, i am back. $status")
         case x =>
             logger.info(s"what ? $x")
     }
 }
+
+

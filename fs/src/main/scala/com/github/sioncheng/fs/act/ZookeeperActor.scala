@@ -135,7 +135,7 @@ class ZookeeperActor(val mainActor: ActorRef) extends Actor {
 
     def unregisterWorkers(name: String): Unit = {
         var exists: Boolean = false
-        val path = s"$WORKER/name"
+        val path = s"$WORKER/$name"
         asClient.exists(path).onComplete {
             case Success(v) =>
                 logger.info(s"exists $path $v")
