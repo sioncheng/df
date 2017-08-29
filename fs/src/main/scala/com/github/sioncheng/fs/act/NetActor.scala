@@ -2,13 +2,14 @@ package com.github.sioncheng.fs.act
 
 import java.net.InetSocketAddress
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.event.Logging
 import akka.io.Tcp._
 import akka.io.{IO, Tcp}
 import akka.stream.ActorMaterializer
+import com.github.sioncheng.cnf.AppConfiguration
 
-class NetActor(val listenOn: String, val mainActor: ActorRef) extends Actor {
+class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends Actor {
 
     val logger = Logging(context.system, classOf[NetActor])
 
@@ -19,6 +20,7 @@ class NetActor(val listenOn: String, val mainActor: ActorRef) extends Actor {
     implicit val executionContext = system.dispatcher
 
     override def preStart(): Unit = {
+        val listenOn = appConf.getString("listen-on").getOrElse("")
         val ipAndPort = listenOn.split(":")
         val serverAddress = new InetSocketAddress(ipAndPort.head, ipAndPort.last.toInt);
         IO(Tcp) ! Bind(self, serverAddress)

@@ -2,6 +2,7 @@ package com.github.sioncheng.fs.act
 
 import akka.actor.{ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestKit}
+import com.github.sioncheng.cnf.AppConfigurationLoader
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
 class NetActorSpec() extends TestKit(ActorSystem("NetActorSpec"))
@@ -16,8 +17,12 @@ class NetActorSpec() extends TestKit(ActorSystem("NetActorSpec"))
 
     "NetActor" must {
         "bind success" in {
-            val listenOn = "0.0.0.0:6000"
-            val na = system.actorOf(Props.create(classOf[NetActor], listenOn, self))
+            val props = Props.create(classOf[NetActor],
+                AppConfigurationLoader.loadFromResourceFile("/appconf.json"),
+                self)
+            val na = system.actorOf(props)
+
+            Thread.sleep(2000)
 
             na ! "hello"
             expectMsg("hello world")

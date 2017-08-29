@@ -4,12 +4,13 @@ import java.net.InetSocketAddress
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
+import com.github.sioncheng.cnf.AppConfiguration
 import com.loopfor.zookeeper.{ACL, AsynchronousZookeeper, Configuration, Connected, Disconnected, Ephemeral, EphemeralSequential, Expired, NodeEvent, Persistent, Session, StateEvent, Status, Zookeeper}
 import org.apache.zookeeper.KeeperException.NoNodeException
 
 import scala.util.{Failure, Success}
 
-class ZookeeperActor(val mainActor: ActorRef) extends Actor {
+class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) extends Actor {
 
     val MASTER = "/master"
     val WORKER = "/workers"
@@ -76,8 +77,9 @@ class ZookeeperActor(val mainActor: ActorRef) extends Actor {
         }
 
         def createMasterFlag(): Unit = {
+            val exportOn = appConf.getString("export-on").getOrElse("")
             asClient.create(s"$MASTER/m_",
-                "".getBytes(),
+                exportOn.getBytes(),
                 ACL.AnyoneAll,
                 EphemeralSequential).onComplete {
                 case Success(value) => {
@@ -125,7 +127,11 @@ class ZookeeperActor(val mainActor: ActorRef) extends Actor {
     }
 
     def registerWorkers(name: String): Unit = {
-        asClient.create(s"$WORKER/$name", "".getBytes(), ACL.AnyoneAll, Ephemeral).onComplete {
+        val exportOn = appConf.getString("export-on").getOrElse("")
+        asClient.create(s"$WORKER/$name",
+            exportOn.getBytes(),
+            ACL.AnyoneAll,
+            Ephemeral).onComplete {
             case Success(v) =>
                 logger.info(s"became worker $name $v")
             case Failure(e) =>

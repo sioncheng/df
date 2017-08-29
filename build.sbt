@@ -20,7 +20,7 @@ lazy val commonSettings = Seq(
     libraryDependencies += "org.slf4j" % "slf4j-api" % "1.7.25",
     libraryDependencies += "io.spray" % "spray-json_2.12" % "1.3.3",
 
-        test in assembly := {},
+    test in assembly := {},
     assemblyMergeStrategy in assembly := {
         case PathList("org", "slf4j", xs @ _*) => MergeStrategy.last
         case PathList("com", "google", xs @ _*) => MergeStrategy.last
