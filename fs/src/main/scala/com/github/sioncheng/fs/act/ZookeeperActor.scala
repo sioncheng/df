@@ -5,15 +5,16 @@ import java.net.InetSocketAddress
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
 import com.github.sioncheng.cnf.AppConfiguration
-import com.loopfor.zookeeper.{ACL, AsynchronousZookeeper, Configuration, Connected, Disconnected, Ephemeral, EphemeralSequential, Expired, NodeEvent, Persistent, Session, StateEvent, Status, Zookeeper}
+import com.loopfor.zookeeper.{ACL, AsynchronousZookeeper, ChildrenChanged, Configuration, Connected, Disconnected, Ephemeral, EphemeralSequential, Expired, NodeEvent, Persistent, Session, StateEvent, Status, Zookeeper}
 import org.apache.zookeeper.KeeperException.NoNodeException
 
 import scala.util.{Failure, Success}
 
 class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) extends Actor {
 
-    val MASTER = "/master"
+    val ELECTION = "/election"
     val WORKER = "/workers"
+    var MASTER = "/master"
 
     val logger = Logging(context.system, classOf[ZookeeperActor])
 
@@ -21,7 +22,7 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
     var asClient: AsynchronousZookeeper = null
     var session: Session  = null
     val servers = List(new InetSocketAddress("127.0.0.1", 2181))
-    val conf = Configuration(servers).withWatcher((se,s) => {
+    val conf: Configuration = Configuration(servers).withWatcher((se,s) => {
         logger.info(s"connection status and session $se, $s")
         se match  {
             case Connected =>
@@ -34,30 +35,40 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                         mainActor ! Return()
                     }
                 }
+            case Expired =>
+                logger.info("re create session")
+                session = null
+                zk = Zookeeper(conf)
         }
     }).build()
 
     zk = Zookeeper(conf)
+    println("zk = Zookeeper")
     import scala.concurrent.ExecutionContext.Implicits.global
 
     var isMaster: Boolean = false
 
     def initRole(): Unit = {
 
-        createIfNotExists(WORKER,())
+        createIfNotExists(MASTER, ())
 
-        createIfNotExists(MASTER, createMasterFlag())
+        createIfNotExists(WORKER, ())
+
+        createIfNotExists(ELECTION, createMasterFlag())
 
 
         def createIfNotExists(path: String, f: => Unit): Unit = {
             asClient.exists(path).onComplete {
                 case Success(v) => {
                     logger.info(s"$path exists $v")
+                    println(s"$path exists $v")
                     f
                 }
                 case Failure(e) => {
                     if (e.isInstanceOf[NoNodeException]) {
                         logger.info(s"no $path then create it")
+                        println(s"no $path then create it")
+
                         asClient.create(path,
                             "".getBytes() ,
                             ACL.AnyoneAll,
@@ -78,13 +89,13 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
         def createMasterFlag(): Unit = {
             val exportOn = appConf.getString("export-on").getOrElse("")
-            asClient.create(s"$MASTER/m_",
+            asClient.create(s"$ELECTION/m_",
                 exportOn.getBytes(),
                 ACL.AnyoneAll,
                 EphemeralSequential).onComplete {
                 case Success(value) => {
                     logger.info(s"success $value")
-                    asClient.children(MASTER).onComplete {
+                    asClient.children(ELECTION).onComplete {
                         case Success(vv) => {
                             logger.info(s"children $vv")
                             checkLeader(value, vv)
@@ -109,13 +120,16 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
     }
 
     def checkLeader(value: String, vv: (Seq[String], Status)): Unit = {
-        val num = value.substring(s"$MASTER/".length)
+        val num = value.substring(s"$ELECTION/".length)
         val children = vv._1.sorted
         if (children.isEmpty || children.head.equalsIgnoreCase(num)) {
             logger.info("i am the leader")
             isMaster = true
             unregisterWorkers(num)
+            registerMaster()
             mainActor ! Leader()
+
+            watchWorkers()
         } else {
             logger.info("oops, i am not the leader.")
             isMaster = false
@@ -123,8 +137,22 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
             mainActor ! Worker()
         }
 
-        watchSession(value)
+        watchElection(value)
     }
+
+    def registerMaster(): Unit = {
+        val exportOn = appConf.getString("export-on").getOrElse("")
+        asClient.create(s"$MASTER/m",
+            exportOn.getBytes(),
+            ACL.AnyoneAll,
+            Ephemeral).onComplete {
+            case Success(v) =>
+                logger.info(s"became master $v")
+            case Failure(e) =>
+                logger.error("became master failure", e)
+        }
+    }
+
 
     def registerWorkers(name: String): Unit = {
         val exportOn = appConf.getString("export-on").getOrElse("")
@@ -159,7 +187,7 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
         }
     }
 
-    def watchSession(value: String): Unit = {
+    def watchElection(value: String): Unit = {
         asClient.watch {
             case Disconnected =>
                 logger.warning("disconnected")
@@ -177,7 +205,7 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
             case e : NodeEvent =>
                 logger.info(s"node event $e")
                 if (isMaster == false) {
-                    asClient.children(MASTER).onComplete {
+                    asClient.children(ELECTION).onComplete {
                         case Success(vv) => {
                             logger.info(s"children $vv")
                             checkLeader(value, vv)
@@ -187,12 +215,39 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                         }
                     }
                 }
-        }.children(MASTER)/*.onComplete {
+        }.children(ELECTION)/*.onComplete {
             case Success(v) =>
                 logger.info(s"children of $MASTER changed")
                 checkLeader(value, v)
             case Failure(e) =>
                 logger.error("watch session error", e)
         }*/
+    }
+
+    def watchWorkers(): Unit = {
+        asClient.watch {
+            case e: ChildrenChanged =>
+                logger.info(s"workers changed $e")
+                asClient.children(WORKER).onComplete {
+                    case Success(children) =>
+                        logger.info(s"workers $children")
+                        mainActor ! RegisterWorkers(children._1)
+                        children._1.foreach(name => {
+                            asClient.get(s"$WORKER/$name").onComplete {
+                                case Success(value) =>
+                                    logger.info(s"get $WORKER/$name $value")
+                                    mainActor ! RegisterWorker(name, value._1)
+                                case Failure(f) =>
+                                    logger.info(s"get $WORKER/$name failure", f)
+                            }
+                        })
+
+                        watchWorkers()
+                    case Failure(f) =>
+                        logger.error(s"get workers failure $f")
+                }
+            case x =>
+                logger.info(s"something happened during watch workers $x")
+        }.children(WORKER)
     }
 }
