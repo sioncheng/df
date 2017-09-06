@@ -50,3 +50,7 @@ lazy val fs = (project in file("fs")).settings(
     mainClass in (Compile, run) := Some("com.github.sioncheng.fs.StartApp"),
     mainClass in assembly := Some("com.github.sioncheng.fs.StartApp")
 ).dependsOn(common)
+
+PB.targets in Compile := Seq(
+    scalapb.gen() -> (sourceManaged in Compile).value
+)

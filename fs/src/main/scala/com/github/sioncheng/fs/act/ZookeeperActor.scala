@@ -1,5 +1,6 @@
 package com.github.sioncheng.fs.act
 
+import java.io.{PrintWriter, StringWriter}
 import java.net.InetSocketAddress
 
 import akka.actor.{Actor, ActorRef}
@@ -14,7 +15,8 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
     val ELECTION = "/election"
     val WORKER = "/workers"
-    var MASTER = "/master"
+    val MASTER = "/master"
+    val ROOT = "/fs-root"
 
     val logger = Logging(context.system, classOf[ZookeeperActor])
 
@@ -50,14 +52,13 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
     def initRole(): Unit = {
 
+        val rootData = FileOp.serializeStatus(FileOp.Status(true)).getBytes()
+        createIfNotExists(ROOT, (), rootData)
         createIfNotExists(MASTER, ())
-
         createIfNotExists(WORKER, ())
-
         createIfNotExists(ELECTION, createMasterFlag())
 
-
-        def createIfNotExists(path: String, f: => Unit): Unit = {
+        def createIfNotExists(path: String, f: => Unit, data: Array[Byte] = null): Unit = {
             asClient.exists(path).onComplete {
                 case Success(v) => {
                     logger.info(s"$path exists $v")
@@ -69,8 +70,9 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                         logger.info(s"no $path then create it")
                         println(s"no $path then create it")
 
+                        val dd = if (data == null) "".getBytes() else data
                         asClient.create(path,
-                            "".getBytes() ,
+                            dd,
                             ACL.AnyoneAll,
                             Persistent).onComplete {
                             case Success(v) =>
@@ -115,10 +117,6 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
     }
 
-    override def receive: Receive = {
-        case x => logger.info(s"receive $x")
-    }
-
     def checkLeader(value: String, vv: (Seq[String], Status)): Unit = {
         val num = value.substring(s"$ELECTION/".length)
         val children = vv._1.sorted
@@ -156,14 +154,23 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
     def registerWorkers(name: String): Unit = {
         val exportOn = appConf.getString("export-on").getOrElse("")
-        asClient.create(s"$WORKER/$name",
-            exportOn.getBytes(),
-            ACL.AnyoneAll,
-            Ephemeral).onComplete {
+        val path = s"$WORKER/$name"
+        asClient.exists(path).onComplete {
             case Success(v) =>
-                logger.info(s"became worker $name $v")
+                logger.info(s"exists $path $v")
             case Failure(e) =>
-                logger.error("became worker $name failure", e)
+                logger.error(s"doesn't exists $path", e)
+
+                asClient.create(s"$WORKER/$name",
+                    exportOn.getBytes(),
+                    ACL.AnyoneAll,
+                    Ephemeral).onComplete {
+                    case Success(v) =>
+                        logger.info(s"became worker $name $v")
+                    case Failure(e) =>
+                        logger.error(s"became worker $name failure", e)
+                        e.printStackTrace()
+                }
         }
     }
 
@@ -182,7 +189,10 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                 case Success(v) =>
                     logger.info(s"un-became worker $v")
                 case Failure(e) =>
-                    logger.error(s"un-became worker $name failure", e)
+                    val sw = new StringWriter
+                    val pw = new PrintWriter(sw)
+                    e.printStackTrace(pw)
+                    logger.error(s"un-became worker $name failure ${sw.toString}", e)
             }
         }
     }
@@ -250,4 +260,47 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                 logger.info(s"something happened during watch workers $x")
         }.children(WORKER)
     }
+
+
+
+
+    override def receive: Receive = {
+        case ls : FileOp.List =>
+            logger.info(s"list ${ls.path}")
+            list(ls.path, sender())
+        case x => logger.info(s"receive $x")
+    }
+
+
+    def list(path: String, asker: ActorRef): Unit = {
+        asClient.get(path).onComplete {
+            case Success(v) =>
+                logger.info(s"get path $path $v")
+                val s = FileOp.deserializeStatus(new String(v._1))
+                if (s.isDir) {
+                    asClient.children(path).onComplete {
+                        case Success(vv) =>
+                            asker ! FileOp.Directory(path, vv._1)
+                        case Failure(ee) =>
+                            logger.error(s"children on $path error", ee)
+                    }
+                } else {
+                    asker ! FileOp.File(path, "".getBytes())
+                }
+            case Failure(e) =>
+                logger.error(s"get path $path error", e)
+
+        }
+    }
+
+    override def postStop(): Unit = {
+        if (asClient != null) {
+            asClient.close()
+        }
+
+        if (zk != null) {
+            zk.close()
+        }
+    }
+
 }
