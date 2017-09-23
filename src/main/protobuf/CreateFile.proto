@@ -1,0 +1,12 @@
+syntax = "proto2";
+option java_package = "com.github.sioncheng.prtl.outer";
+option java_outer_classname = "CreateFile";
+
+message CreateFileMessage {
+    required string path = 1;
+    required int32 contentLength = 2;
+    required int32 partitions = 3;
+    required int32 partitionNo = 4;
+    required int32 partitionLength = 5;
+    required bytes data = 6;
+}

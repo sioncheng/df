@@ -27,6 +27,9 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
     val conf: Configuration = Configuration(servers).withWatcher((se,s) => {
         logger.info(s"connection status and session $se, $s")
         se match  {
+            case Disconnected =>
+                logger.warning("disconnected")
+                mainActor ! Lost()
             case Connected =>
                 asClient = zk.async
                 if (session == null) {
@@ -39,8 +42,11 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                 }
             case Expired =>
                 logger.info("re create session")
+                mainActor ! Lost()
                 session = null
                 zk = Zookeeper(conf)
+            case x =>
+                logger.info(s"other thing happened during watching $x")
         }
     }).build()
 
@@ -123,7 +129,9 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
         if (children.isEmpty || children.head.equalsIgnoreCase(num)) {
             logger.info("i am the leader")
             isMaster = true
-            unregisterWorkers(num)
+            if (children.head.equalsIgnoreCase(num)) {
+                unregisterWorkers(num)
+            }
             registerMaster()
             mainActor ! Leader()
 
@@ -199,19 +207,6 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
 
     def watchElection(value: String): Unit = {
         asClient.watch {
-            case Disconnected =>
-                logger.warning("disconnected")
-                mainActor ! Lost()
-                //preStart()
-            case Expired =>
-                logger.warning("expired")
-                mainActor ! Lost()
-                //preStart()
-            case Connected =>
-                logger.warning("connected")
-                //initRole()
-            case e: StateEvent =>
-                logger.info(s"state event $e")
             case e : NodeEvent =>
                 logger.info(s"node event $e")
                 if (isMaster == false) {
@@ -225,13 +220,9 @@ class ZookeeperActor(val mainActor: ActorRef, val appConf: AppConfiguration) ext
                         }
                     }
                 }
-        }.children(ELECTION)/*.onComplete {
-            case Success(v) =>
-                logger.info(s"children of $MASTER changed")
-                checkLeader(value, v)
-            case Failure(e) =>
-                logger.error("watch session error", e)
-        }*/
+            case x =>
+                logger.info(s"something happened during watch election $x")
+        }.children(ELECTION)
     }
 
     def watchWorkers(): Unit = {

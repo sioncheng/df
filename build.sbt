@@ -19,6 +19,7 @@ lazy val commonSettings = Seq(
     libraryDependencies += "ch.qos.logback" % "logback-core" % "1.2.3",
     libraryDependencies += "org.slf4j" % "slf4j-api" % "1.7.25",
     libraryDependencies += "io.spray" % "spray-json_2.12" % "1.3.3",
+    libraryDependencies += "com.google.protobuf" % "protobuf-java" % "3.4.0",
 
     test in assembly := {},
     assemblyMergeStrategy in assembly := {
@@ -51,6 +52,4 @@ lazy val fs = (project in file("fs")).settings(
     mainClass in assembly := Some("com.github.sioncheng.fs.StartApp")
 ).dependsOn(common)
 
-PB.targets in Compile := Seq(
-    scalapb.gen() -> (sourceManaged in Compile).value
-)
+enablePlugins(ProtobufPlugin)
