@@ -4,12 +4,12 @@ object CommandCode {
     val CreateFile = 1
 }
 
-case class Command(commandCode: Int, data:Array[Byte])
+case class FileCommand(commandCode: Int, data:Array[Byte])
 
 object CommandSerializer {
     import java.nio.ByteBuffer
 
-    def toBytes(command: Command): Array[Byte] = {
+    def toBytes(command: FileCommand): Array[Byte] = {
         val commandCodeBuf = ByteBuffer.allocate(4)
         commandCodeBuf.asIntBuffer().put(command.commandCode)
         val lengthBuf = ByteBuffer.allocate(4)
@@ -17,20 +17,32 @@ object CommandSerializer {
         commandCodeBuf.array() ++ lengthBuf.array() ++ command.data
     }
 
-    def parseFrom(data: Array[Byte]): Option[Command] = {
-        if (data.length <= 8) {
+    def parseFrom(data: Array[Byte]): Option[(FileCommand, Int)] = {
+        parseFrom(data, 0)
+    }
+
+    def parseFrom(data: Array[Byte], index: Int): Option[(FileCommand, Int)] = {
+        if (data.length <= 8 + index) {
             None
         } else {
-            val commandCodeBuf = ByteBuffer.wrap(data,0, 4)
+            val commandCodeBuf = ByteBuffer.wrap(data,index, 4)
             val commandCode = commandCodeBuf.asIntBuffer().get(0)
-            val lengthBuf = ByteBuffer.wrap(data, 4, 4)
-            val length = lengthBuf.asIntBuffer().get(0)
-            if (data.length != (4 + 4 + length)) {
+            if (false == isValidCommandCode(commandCode)) {
                 None
             } else {
-                Some(Command(commandCode, ByteBuffer.wrap(data, 8, length).array()))
+                val lengthBuf = ByteBuffer.wrap(data, 4 + index, 4)
+                val dataLength = lengthBuf.asIntBuffer().get(0)
+                val totalLength = 8 + index + dataLength
+                if (data.length < totalLength) {
+                    None
+                } else {
+                    Some((FileCommand(commandCode, ByteBuffer.wrap(data, 8 + index, dataLength).array())), totalLength)
+                }
             }
         }
+    }
 
+    def isValidCommandCode(code: Int): Boolean = {
+        code == CommandCode.CreateFile
     }
 }

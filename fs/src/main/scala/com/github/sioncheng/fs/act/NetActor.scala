@@ -7,7 +7,12 @@ import akka.event.Logging
 import akka.io.Tcp._
 import akka.io.{IO, Tcp}
 import akka.stream.ActorMaterializer
+import akka.util.ByteString
 import com.github.sioncheng.cnf.AppConfiguration
+import com.github.sioncheng.prtl.{CommandSerializer, FileCommand}
+
+case class ReceivedCommand(command: FileCommand)
+
 
 class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends Actor {
 
@@ -42,7 +47,7 @@ class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends A
         case Connected(remote, local) =>
             logger.info(s"connected $remote $local")
             val conn = sender()
-            val handler = system.actorOf(Props.create(classOf[ConnectionHandler], conn))
+            val handler = system.actorOf(Props.create(classOf[ConnectionHandler], conn, self))
             conn ! Register(handler)
         case "hello" =>
             if (bound) {
@@ -53,9 +58,11 @@ class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends A
     }
 }
 
-class ConnectionHandler(conn: ActorRef) extends Actor {
+class ConnectionHandler(conn: ActorRef, server: ActorRef) extends Actor {
 
     val logger = Logging(context.system, classOf[ConnectionHandler])
+
+    val remainBytes = java.nio.ByteBuffer.allocate(10240)
 
     implicit val system = context.system
     implicit val materializer = ActorMaterializer()
@@ -64,7 +71,42 @@ class ConnectionHandler(conn: ActorRef) extends Actor {
     override def receive: Receive = {
         case Received(data) =>
             logger.info(s"received ${data.utf8String}")
+            parseReceivedData(data)
         case PeerClosed =>
             logger.info(s"peer closed $conn")
+    }
+
+    def parseReceivedData(data : ByteString): Unit = {
+        //load data
+        var sourceIndex: Int = 0
+        var shouldLoopCopy: Boolean = true
+        while(shouldLoopCopy) {
+            if (10240 - remainBytes.position() < data.length) {
+                remainBytes.compact()
+            }
+            val n = data.copyToBuffer(remainBytes)
+            sourceIndex = sourceIndex + n
+
+            val backBytes = remainBytes.array()
+            var parsedIndex = 0
+            var shouldLoopParse: Boolean = true
+            while(shouldLoopParse) {
+                val parsedCommand = CommandSerializer.parseFrom(backBytes, parsedIndex)
+                if (parsedCommand.isEmpty || parsedCommand.head._1.commandCode == 0) {
+                    shouldLoopParse = false
+                    shouldLoopCopy = false
+                } else {
+                    println(parsedCommand.head)
+                    server ! ReceivedCommand(parsedCommand.head._1)
+                    parsedIndex = parsedIndex + parsedCommand.head._2
+                }
+            }
+
+            //
+            if (sourceIndex == data.length) {
+                shouldLoopCopy = false
+            }
+        }
+
     }
 }
