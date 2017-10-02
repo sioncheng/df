@@ -22,6 +22,7 @@ class MainActor extends Actor {
         new mutable.HashMap[String, Array[Byte]]()
 
     override def receive: Receive = {
+        //cluster thing
         case _ @ Leader() =>
             status = Leading
             workers.clear()
@@ -59,6 +60,10 @@ class MainActor extends Actor {
         case _ @ UnregisterWorker(name) =>
             logger.info(s"un-register worker $name")
             workers.-(name)
+        // command from network thing
+        case rc : ReceivedCommand =>
+            logger.info(s"received command ${rc.command.commandCode}")
+        // file operation thing
         case x =>
             logger.info(s"what ? $x")
     }

@@ -49,6 +49,9 @@ class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends A
             val conn = sender()
             val handler = system.actorOf(Props.create(classOf[ConnectionHandler], conn, self))
             conn ! Register(handler)
+        case receivedCommand : ReceivedCommand =>
+            logger.info(s"received command ${receivedCommand.command.commandCode}")
+            mainActor ! receivedCommand
         case "hello" =>
             if (bound) {
                 sender() ! "hello world"
@@ -62,7 +65,7 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef) extends Actor {
 
     val logger = Logging(context.system, classOf[ConnectionHandler])
 
-    val remainBytes = java.nio.ByteBuffer.allocate(10240)
+    val receivedBytes = java.nio.ByteBuffer.allocate(10240)
 
     implicit val system = context.system
     implicit val materializer = ActorMaterializer()
@@ -81,26 +84,29 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef) extends Actor {
         var sourceIndex: Int = 0
         var shouldLoopCopy: Boolean = true
         while(shouldLoopCopy) {
-            if (10240 - remainBytes.position() < data.length) {
-                remainBytes.compact()
+            if (10240 - receivedBytes.position() < data.length) {
+                receivedBytes.compact()
             }
-            val n = data.copyToBuffer(remainBytes)
+            val n = data.copyToBuffer(receivedBytes)
             sourceIndex = sourceIndex + n
 
-            val backBytes = remainBytes.array()
-            var parsedIndex = 0
+            receivedBytes.flip() //to read
+            val backBytes = receivedBytes.array()
+            var size = receivedBytes.limit()
+            var parsedIndex = receivedBytes.position()
             var shouldLoopParse: Boolean = true
             while(shouldLoopParse) {
-                val parsedCommand = CommandSerializer.parseFrom(backBytes, parsedIndex)
+                val parsedCommand = CommandSerializer.parseFrom(backBytes, parsedIndex, size)
                 if (parsedCommand.isEmpty || parsedCommand.head._1.commandCode == 0) {
                     shouldLoopParse = false
                     shouldLoopCopy = false
                 } else {
-                    println(parsedCommand.head)
                     server ! ReceivedCommand(parsedCommand.head._1)
                     parsedIndex = parsedIndex + parsedCommand.head._2
+                    size = size - parsedCommand.head._2
                 }
             }
+            receivedBytes.compact() // to write
 
             //
             if (sourceIndex == data.length) {

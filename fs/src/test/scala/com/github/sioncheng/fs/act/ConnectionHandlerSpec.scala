@@ -29,7 +29,8 @@ class ConnectionHandlerSpec() extends TestKit(ActorSystem("ConnectionHandlerSpec
 
             val netBytes = CommandSerializer.toBytes(createFile)
 
-            connectonHandler ! Received(ByteString.fromArray(netBytes))
+            connectonHandler ! Received(ByteString.fromArray(netBytes, 0, 5))
+            connectonHandler ! Received(ByteString.fromArray(netBytes, 5, netBytes.length - 5))
 
             val expectCommand = ReceivedCommand(createFile)
 

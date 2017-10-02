@@ -18,11 +18,11 @@ object CommandSerializer {
     }
 
     def parseFrom(data: Array[Byte]): Option[(FileCommand, Int)] = {
-        parseFrom(data, 0)
+        parseFrom(data, 0, data.length)
     }
 
-    def parseFrom(data: Array[Byte], index: Int): Option[(FileCommand, Int)] = {
-        if (data.length <= 8 + index) {
+    def parseFrom(data: Array[Byte], index: Int, size: Int): Option[(FileCommand, Int)] = {
+        if (size <= 8) {
             None
         } else {
             val commandCodeBuf = ByteBuffer.wrap(data,index, 4)
@@ -33,7 +33,7 @@ object CommandSerializer {
                 val lengthBuf = ByteBuffer.wrap(data, 4 + index, 4)
                 val dataLength = lengthBuf.asIntBuffer().get(0)
                 val totalLength = 8 + index + dataLength
-                if (data.length < totalLength) {
+                if (size < totalLength) {
                     None
                 } else {
                     Some((FileCommand(commandCode, ByteBuffer.wrap(data, 8 + index, dataLength).array())), totalLength)
