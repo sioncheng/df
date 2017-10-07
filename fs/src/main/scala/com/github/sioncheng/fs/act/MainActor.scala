@@ -1,7 +1,8 @@
 package com.github.sioncheng.fs.act
 
-import akka.actor.Actor
+import akka.actor.{Actor, ActorRef, Props}
 import akka.event.Logging
+import com.github.sioncheng.cnf.AppConfiguration
 
 import scala.collection.mutable
 
@@ -12,7 +13,7 @@ case object Leading extends MainStatus
 case object Working extends MainStatus
 case class Losing(val prev: MainStatus) extends MainStatus
 
-class MainActor extends Actor {
+class MainActor(appConf: AppConfiguration) extends Actor {
 
     val logger = Logging(context.system, classOf[MainActor])
 
@@ -20,6 +21,9 @@ class MainActor extends Actor {
 
     val workers: scala.collection.mutable.HashMap[String, Array[Byte]] =
         new mutable.HashMap[String, Array[Byte]]()
+
+    var outerNetActor: ActorRef = null
+    var fileActor: ActorRef = null
 
     override def receive: Receive = {
         //cluster thing
@@ -30,6 +34,8 @@ class MainActor extends Actor {
         case _ @ Worker() =>
             status = Working
             workers.clear()
+            checkAndStartOuterNetActor()
+            checkAndStartFileActor()
             logger.info(s"my status $status")
         case _ @ Lost() =>
             status = Losing(status)
@@ -63,9 +69,30 @@ class MainActor extends Actor {
         // command from network thing
         case rc : ReceivedCommand =>
             logger.info(s"received command ${rc.command.commandCode}")
+            if (status == Leading) {
+                fileActor ! rc.command
+            } else {
+                logger.warning(s"not leading , cant process ${rc.command.commandCode}")
+            }
         // file operation thing
         case x =>
             logger.info(s"what ? $x")
+    }
+
+    private def checkAndStartOuterNetActor(): Unit = {
+        if (outerNetActor != null) {
+            return
+        }
+        val props = Props.create(classOf[OuterNetActor], appConf, self)
+        outerNetActor = context.actorOf(props)
+    }
+
+    private def checkAndStartFileActor(): Unit = {
+        if (fileActor != null) {
+            return
+        }
+        val props = Props.create(classOf[FileActor], appConf, self)
+        fileActor = context.actorOf(props)
     }
 }
 

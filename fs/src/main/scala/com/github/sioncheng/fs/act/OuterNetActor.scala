@@ -11,14 +11,16 @@ import akka.util.ByteString
 import com.github.sioncheng.cnf.AppConfiguration
 import com.github.sioncheng.prtl.{CommandSerializer, FileCommand}
 
-case class ReceivedCommand(command: FileCommand)
+case class ReceivedCommand(command: FileCommand, clientId: String)
+case class ReceivedCommandConfirm(command: FileCommand, clientId: String, success: Boolean, message: String)
 
 
-class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends Actor {
+class OuterNetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends Actor {
 
-    val logger = Logging(context.system, classOf[NetActor])
+    val logger = Logging(context.system, classOf[OuterNetActor])
 
     var bound: Boolean = false
+    var clientCounter: BigInt = 0
 
     implicit val system = context.system
     implicit val materializer = ActorMaterializer()
@@ -46,8 +48,10 @@ class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends A
             context.stop(self)
         case Connected(remote, local) =>
             logger.info(s"connected $remote $local")
+            clientCounter = clientCounter + 1
             val conn = sender()
-            val handler = system.actorOf(Props.create(classOf[ConnectionHandler], conn, self))
+            val props = Props.create(classOf[ConnectionHandler], conn, self, s"client-${clientCounter}")
+            val handler = system.actorOf(props)
             conn ! Register(handler)
         case receivedCommand : ReceivedCommand =>
             logger.info(s"received command ${receivedCommand.command.commandCode}")
@@ -61,7 +65,7 @@ class NetActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends A
     }
 }
 
-class ConnectionHandler(conn: ActorRef, server: ActorRef) extends Actor {
+class ConnectionHandler(conn: ActorRef, server: ActorRef, Id: String) extends Actor {
 
     val logger = Logging(context.system, classOf[ConnectionHandler])
 
@@ -101,7 +105,7 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef) extends Actor {
                     shouldLoopParse = false
                     shouldLoopCopy = false
                 } else {
-                    server ! ReceivedCommand(parsedCommand.head._1)
+                    server ! ReceivedCommand(parsedCommand.head._1, Id)
                     parsedIndex = parsedIndex + parsedCommand.head._2
                     size = size - parsedCommand.head._2
                 }
