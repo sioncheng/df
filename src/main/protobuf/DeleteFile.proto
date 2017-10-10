@@ -1,0 +1,7 @@
+syntax = "proto2";
+option java_package = "com.github.sioncheng.prtl.outer";
+option java_outer_classname = "DeleteFile";
+
+message DeleteFileMessage {
+    required string path = 1;
+}

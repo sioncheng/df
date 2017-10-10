@@ -2,19 +2,28 @@ package com.github.sioncheng.prtl
 
 object CommandCode {
     val CreateFile = 1
+    val DeleteFile = 2
+    val OpenFile = 3
+    val FindFile = 4
 }
 
-case class FileCommand(commandCode: Int, data:Array[Byte])
+case class FileCommand(id: Int, commandCode: Int, data:Array[Byte])
+
+case class CreateFileResult(root: String, path: String, success: Boolean)
+case class DeleteFileResult(root: String, path: String, success: Boolean)
+case class FindFileResult(root: String, path: String, exist: Boolean)
 
 object CommandSerializer {
     import java.nio.ByteBuffer
 
     def toBytes(command: FileCommand): Array[Byte] = {
+        val idBuf = ByteBuffer.allocate(4)
+        idBuf.asIntBuffer().put(command.id)
         val commandCodeBuf = ByteBuffer.allocate(4)
         commandCodeBuf.asIntBuffer().put(command.commandCode)
         val lengthBuf = ByteBuffer.allocate(4)
         lengthBuf.asIntBuffer().put(command.data.length)
-        commandCodeBuf.array() ++ lengthBuf.array() ++ command.data
+        idBuf.array() ++ commandCodeBuf.array() ++ lengthBuf.array() ++ command.data
     }
 
     def parseFrom(data: Array[Byte]): Option[(FileCommand, Int)] = {
@@ -22,21 +31,23 @@ object CommandSerializer {
     }
 
     def parseFrom(data: Array[Byte], index: Int, size: Int): Option[(FileCommand, Int)] = {
-        if (size <= 8) {
+        if (size <= 12) {
             None
         } else {
-            val commandCodeBuf = ByteBuffer.wrap(data,index, 4)
+            val idBuf = ByteBuffer.wrap(data, index, 4)
+            val id = idBuf.asIntBuffer().get(0)
+            val commandCodeBuf = ByteBuffer.wrap(data,4 + index, 4)
             val commandCode = commandCodeBuf.asIntBuffer().get(0)
             if (false == isValidCommandCode(commandCode)) {
                 None
             } else {
-                val lengthBuf = ByteBuffer.wrap(data, 4 + index, 4)
+                val lengthBuf = ByteBuffer.wrap(data, 8 + index, 4)
                 val dataLength = lengthBuf.asIntBuffer().get(0)
-                val totalLength = 8 + index + dataLength
+                val totalLength = 12 + index + dataLength
                 if (size < totalLength) {
                     None
                 } else {
-                    Some((FileCommand(commandCode, ByteBuffer.wrap(data, 8 + index, dataLength).array())), totalLength)
+                    Some((FileCommand(id, commandCode, ByteBuffer.wrap(data, 12 + index, dataLength).array())), totalLength)
                 }
             }
         }
