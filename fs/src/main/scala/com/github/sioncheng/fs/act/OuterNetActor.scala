@@ -11,6 +11,8 @@ import akka.util.ByteString
 import com.github.sioncheng.cnf.AppConfiguration
 import com.github.sioncheng.prtl.{CommandSerializer, FileCommand}
 
+import scala.collection.mutable
+
 case class ReceivedCommand(command: FileCommand, clientId: String)
 case class ReceivedCommandConfirm(command: FileCommand, clientId: String, success: Boolean, message: String)
 
@@ -21,6 +23,8 @@ class OuterNetActor(val appConf: AppConfiguration, val mainActor: ActorRef) exte
 
     var bound: Boolean = false
     var clientCounter: BigInt = 0
+    val connectionHandlers : mutable.HashMap[String, ActorRef] =
+        new mutable.HashMap[String, ActorRef]()
 
     implicit val system = context.system
     implicit val materializer = ActorMaterializer()
@@ -50,12 +54,16 @@ class OuterNetActor(val appConf: AppConfiguration, val mainActor: ActorRef) exte
             logger.info(s"connected $remote $local")
             clientCounter = clientCounter + 1
             val conn = sender()
-            val props = Props.create(classOf[ConnectionHandler], conn, self, s"client-${clientCounter}")
+            val clientId = s"client-${clientCounter}"
+            val props = Props.create(classOf[ConnectionHandler], conn, self, clientId)
             val handler = system.actorOf(props)
+            connectionHandlers.put(clientId, handler)
             conn ! Register(handler)
         case receivedCommand : ReceivedCommand =>
             logger.info(s"received command ${receivedCommand.command.commandCode}")
             mainActor ! receivedCommand
+        case ConnectionHandlerPeerClosed(clientId) =>
+            connectionHandlers.remove(clientId)
         case "hello" =>
             if (bound) {
                 sender() ! "hello world"
@@ -64,6 +72,9 @@ class OuterNetActor(val appConf: AppConfiguration, val mainActor: ActorRef) exte
             }
     }
 }
+
+
+case class ConnectionHandlerPeerClosed(clientId: String)
 
 class ConnectionHandler(conn: ActorRef, server: ActorRef, Id: String) extends Actor {
 
@@ -79,8 +90,9 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef, Id: String) extends Ac
         case Received(data) =>
             logger.info(s"received ${data.utf8String}")
             parseReceivedData(data)
-        case PeerClosed =>
+        case _ @ PeerClosed =>
             logger.info(s"peer closed $conn")
+            server ! ConnectionHandlerPeerClosed(Id)
     }
 
     def parseReceivedData(data : ByteString): Unit = {
