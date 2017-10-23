@@ -160,7 +160,7 @@ class CreateFileActor(root: String, path: String, parent: ActorRef, sourceId: St
                 case e: IOException =>
                     logger.error(s"create ${path} error ${e.getMessage}")
                     sender() ! CreateFileResult(root, path, false)
-                    parent ! IllegalCreateFileMessageException(path, e.getMessage)
+                    parent ! IllegalCreateFileMessageException(path, e.getMessage, sourceId)
             }
 
             //
