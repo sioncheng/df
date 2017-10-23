@@ -6,7 +6,7 @@ import java.net.InetSocketAddress
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
 import com.github.sioncheng.cnf.AppConfiguration
-import com.loopfor.zookeeper.{ACL, AsynchronousZookeeper, ChildrenChanged, Configuration, Connected, Disconnected, Ephemeral, EphemeralSequential, Expired, NodeEvent, Persistent, Session, StateEvent, Status, Zookeeper}
+import com.loopfor.zookeeper._
 import org.apache.zookeeper.KeeperException.NoNodeException
 
 import scala.util.{Failure, Success}

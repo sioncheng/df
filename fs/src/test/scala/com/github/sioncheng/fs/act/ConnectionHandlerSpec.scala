@@ -25,19 +25,19 @@ class ConnectionHandlerSpec() extends TestKit(ActorSystem("ConnectionHandlerSpec
 
             val commandData = "abcdefgh".getBytes
 
-            val createFile = FileCommand(CommandCode.CreateFile, commandData)
+            val createFile = FileCommand(1, CommandCode.CreateFile, commandData)
 
             val netBytes = CommandSerializer.toBytes(createFile)
 
             connectonHandler ! Received(ByteString.fromArray(netBytes, 0, 5))
             connectonHandler ! Received(ByteString.fromArray(netBytes, 5, netBytes.length - 5))
 
-            val expectCommand = ReceivedCommand(createFile)
+            val expectCommand = ReceivedCommand(createFile, "123")
 
             Thread.sleep(1000)
 
             expectMsgPF() {
-                case x @ ReceivedCommand(createFile) =>
+                case _ @ ReceivedCommand(`createFile`, "123") =>
                     expectCommand
             }
         }

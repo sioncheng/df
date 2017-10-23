@@ -136,10 +136,17 @@ class CreateFileActor(root: String, path: String, parent: ActorRef) extends Acto
             val bf = ByteBuffer.wrap(createFileMessage.getData.toByteArray)
             var remain = bf.limit()
             var index = 0
-            while(remain > 0) {
-                val n = f.write(bf)
-                index = index + n
-                remain = remain - n
+            try {
+                while (remain > 0) {
+                    val n = f.write(bf)
+                    index = index + n
+                    remain = remain - n
+                }
+            } catch {
+                case e: IOException =>
+                    logger.error(s"create ${path} error ${e.getMessage}")
+                    sender() ! CreateFileResult(root, path, false)
+                    parent ! IllegalCreateFileMessageException(path, e.getMessage)
             }
 
             //
@@ -149,7 +156,6 @@ class CreateFileActor(root: String, path: String, parent: ActorRef) extends Acto
                 logger.info(s"finished write file ${createFileMessage.getPath}")
 
                 sender() ! CreateFileResult(root, path, true)
-
                 parent ! FinishedFileOperation(CommandCode.CreateFile, path)
             }
         case x =>

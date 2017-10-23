@@ -8,6 +8,7 @@ object CommandCode {
 }
 
 case class FileCommand(id: Int, commandCode: Int, data:Array[Byte])
+case class FileCommandAck(id: Int, commandCode: Int, success: Boolean)
 
 case class CreateFileResult(root: String, path: String, success: Boolean)
 case class DeleteFileResult(root: String, path: String, success: Boolean)
