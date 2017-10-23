@@ -15,19 +15,26 @@ import com.google.protobuf.ByteString
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-case class FileOperationException(code: Int, path: String, message: String)
-case class FinishedFileOperation(code: Int, path: String)
+case class FileOperationException(code: Int, path: String, message: String, sourceId: String)
+case class FinishedFileOperation(code: Int, path: String, sourceId: String)
+
+case class FileCommandMessage(fc: FileCommand, sourceId: String)
+
 
 class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends Actor {
 
     val logger = Logging(context.system, classOf[FileActor])
-    val createFileActors : scala.collection.mutable.HashMap[String, ActorRef] =
+    val createFileActors : mutable.HashMap[String, ActorRef] =
+        new mutable.HashMap[String, ActorRef]()
+    val creatingFilePathSet: mutable.HashSet[String] =
+        new mutable.HashSet[String]()
+    val openFileActors: mutable.HashMap[String, ActorRef] =
         new mutable.HashMap[String, ActorRef]()
 
     override def receive: Receive = {
-        case fc : FileCommand =>
-            logger.info(s"received file command ${fc.commandCode}")
-            processFileCommand(fc)
+        case fcm : FileCommandMessage =>
+            logger.info(s"received file command ${fcm.fc.commandCode}")
+            processFileCommand(fcm.fc, fcm.sourceId)
         case ffo: FinishedFileOperation =>
             ffo.code match {
                 case CommandCode.CreateFile =>
@@ -44,32 +51,34 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
             case _: NullPointerException     => Restart
             case e: IllegalCreateFileMessageException =>
                 logger.error(s"e.getMessage ${e.getMessage}")
-                mainActor ! FileOperationException(CommandCode.CreateFile, e.path, e.getMessage)
+                mainActor ! FileOperationException(CommandCode.CreateFile, e.path, e.getMessage, e.sourceId)
                 removeCreateFileActor(e.path)
                 Stop
             case e: IllegalOpenFileMessageException =>
                 logger.error(s"e.getMessage ${e.getMessage}")
-                mainActor ! FileOperationException(CommandCode.OpenFile, e.path, e.getMessage)
+                mainActor ! FileOperationException(CommandCode.OpenFile, e.path, e.getMessage, e.sourceId)
                 Stop
             case x: Exception                =>
                 logger.warning(s"escalate ${x}")
                 Escalate
         }
 
-    def processFileCommand(fc: FileCommand): Unit = {
+    def processFileCommand(fc: FileCommand, sourceId: String): Unit = {
         val root = appConf.getString("fs-root").get
         fc.commandCode match {
             case CommandCode.CreateFile =>
                 val createFileMessage = CreateFile.CreateFileMessage.parseFrom(fc.data)
-                if (false == createFileActors.contains(createFileMessage.getPath)) {
+                if (false == creatingFilePathSet.contains(createFileMessage.getPath)) {
                     val props = Props.create(classOf[CreateFileActor],
                         root,
                         createFileMessage.getPath,
-                        self)
+                        self,
+                        sourceId)
                     val createFileActor = context.actorOf(props)
-                    createFileActors.put(createFileMessage.getPath, createFileActor)
+                    createFileActors.put(sourceId, createFileActor)
+                    creatingFilePathSet.add(createFileMessage.getPath)
                 }
-                createFileActors.get(createFileMessage.getPath).head forward createFileMessage
+                createFileActors.get(sourceId).head ! createFileMessage
             case CommandCode.DeleteFile =>
                 val deleteFileMessage = DeleteFile.DeleteFileMessage.parseFrom(fc.data)
                 val file = new File(root, deleteFileMessage.getPath)
@@ -79,13 +88,18 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
                 val file = new File(root, findFileMessage.getPath)
                 sender() ! FindFileResult(root, findFileMessage.getPath, file.exists())
             case CommandCode.OpenFile =>
-                val openFileMessage = FilePath.FilePathMessage.parseFrom(fc.data)
-                val props = Props.create(classOf[OpenFileActor],
-                    root,
-                    openFileMessage.getPath,
-                    self)
-                val openFileActor = context.actorOf(props)
-                openFileActor forward  openFileMessage
+                if (false == openFileActors.contains(sourceId)) {
+                    val openFileMessage = FilePath.FilePathMessage.parseFrom(fc.data)
+                    val props = Props.create(classOf[OpenFileActor],
+                        root,
+                        openFileMessage.getPath,
+                        self,
+                        sourceId)
+
+                    val openFileActor = context.actorOf(props)
+                    openFileActors.put(sourceId, openFileActor)
+                }
+                openFileActors.get(sourceId).head ! fc
             case x =>
                 logger.warning(s"what? ${x}")
         }
@@ -101,7 +115,7 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
 }
 
 
-class CreateFileActor(root: String, path: String, parent: ActorRef) extends Actor {
+class CreateFileActor(root: String, path: String, parent: ActorRef, sourceId: String) extends Actor {
 
     val logger = Logging(context.system, classOf[CreateFileActor])
 
@@ -122,14 +136,14 @@ class CreateFileActor(root: String, path: String, parent: ActorRef) extends Acto
 
             if (createFileMessage.getPartitionNo() != expectPartition) {
                 val message = s"expect ${expectPartition} but ${createFileMessage.getPartitionNo}"
-                throw new IllegalCreateFileMessageException(path, message)
+                throw new IllegalCreateFileMessageException(path, message, sourceId)
             }
 
             if (f == null) {
                 val file = new File(root, path)
                 if (file.exists()) {
                     val message = s"${root}${path} exists"
-                    throw new IllegalCreateFileMessageException(path, message)
+                    throw new IllegalCreateFileMessageException(path, message, sourceId)
                 }
                 f = (new FileOutputStream(file, true)).getChannel
             }
@@ -156,14 +170,14 @@ class CreateFileActor(root: String, path: String, parent: ActorRef) extends Acto
                 logger.info(s"finished write file ${createFileMessage.getPath}")
 
                 sender() ! CreateFileResult(root, path, true)
-                parent ! FinishedFileOperation(CommandCode.CreateFile, path)
+                parent ! FinishedFileOperation(CommandCode.CreateFile, path, sourceId)
             }
         case x =>
             logger.warning(s"what ? ${x}")
     }
 }
 
-class OpenFileActor(root: String, path: String, parent: ActorRef) extends Actor {
+class OpenFileActor(root: String, path: String, parent: ActorRef, sourceId: String) extends Actor {
     val blockSize = 1024
     val logger = Logging(context.system, classOf[OpenFileActor])
 
@@ -171,7 +185,7 @@ class OpenFileActor(root: String, path: String, parent: ActorRef) extends Actor 
         case _ : FilePath.FilePathMessage =>
             val file = new File(root, path)
             if (file.exists() == false) {
-                throw new IllegalOpenFileMessageException(path, "file does not exist")
+                throw new IllegalOpenFileMessageException(path, "file does not exist", sourceId)
             }
             val partitions = (file.length() + blockSize - 1) / blockSize
             val buffer = new Array[Byte](blockSize)
@@ -201,11 +215,11 @@ class OpenFileActor(root: String, path: String, parent: ActorRef) extends Actor 
                     .setData(ByteString.copyFrom(buffer, 0, index))
                     .build()
 
-                sender() ! openFileMessage
+                sender() ! (openFileMessage, sourceId)
 
                 partition = partition + 1
             }
-            parent ! FinishedFileOperation(CommandCode.OpenFile, path)
+            parent ! FinishedFileOperation(CommandCode.OpenFile, path, sourceId)
             context.stop(self)
         case x =>
             logger.warning(s"what ? ${x}")
@@ -213,5 +227,5 @@ class OpenFileActor(root: String, path: String, parent: ActorRef) extends Actor 
     }
 }
 
-case class IllegalCreateFileMessageException(path: String, message: String) extends Exception(message)
-case class IllegalOpenFileMessageException(path: String, message: String) extends Exception(message)
+case class IllegalCreateFileMessageException(path: String, message: String, sourceId: String) extends Exception(message)
+case class IllegalOpenFileMessageException(path: String, message: String, sourceId: String) extends Exception(message)

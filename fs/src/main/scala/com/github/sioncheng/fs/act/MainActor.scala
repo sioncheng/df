@@ -70,7 +70,7 @@ class MainActor(appConf: AppConfiguration) extends Actor {
         case rc : ReceivedCommand =>
             logger.info(s"received command ${rc.command.commandCode}")
             if (status == Leading) {
-                fileActor ! rc.command
+                fileActor ! FileCommandMessage(rc.command, rc.clientId)
             } else {
                 logger.warning(s"not leading , cant process ${rc.command.commandCode}")
             }

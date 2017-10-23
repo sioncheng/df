@@ -11,6 +11,7 @@ lazy val commonSettings = Seq(
     libraryDependencies += "org.specs2" % "specs2-core_2.12" % "3.8.6" % "test",
     libraryDependencies += "org.apache.zookeeper" % "zookeeper" % "3.4.10",
     libraryDependencies += "com.typesafe.akka" % "akka-http_2.12" % "10.0.9",
+    libraryDependencies +=  "com.typesafe.akka" %% "akka-actor" % "2.5.4",
     libraryDependencies += "com.typesafe.akka" % "akka-testkit_2.12" % "2.5.4" % "test",
     libraryDependencies += "org.scalatest" % "scalatest_2.12" % "3.0.4" % "test",
     libraryDependencies += "com.typesafe.akka" % "akka-slf4j_2.12" % "2.5.4",
