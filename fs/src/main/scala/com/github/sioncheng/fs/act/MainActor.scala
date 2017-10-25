@@ -3,6 +3,7 @@ package com.github.sioncheng.fs.act
 import akka.actor.{Actor, ActorRef, Props}
 import akka.event.Logging
 import com.github.sioncheng.cnf.AppConfiguration
+import com.github.sioncheng.prtl.FileCommandMessage
 
 import scala.collection.mutable
 

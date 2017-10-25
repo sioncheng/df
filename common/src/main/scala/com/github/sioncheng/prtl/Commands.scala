@@ -10,9 +10,16 @@ object CommandCode {
 case class FileCommand(id: Int, commandCode: Int, data:Array[Byte])
 case class FileCommandAck(id: Int, commandCode: Int, success: Boolean)
 
-case class CreateFileResult(root: String, path: String, success: Boolean)
-case class DeleteFileResult(root: String, path: String, success: Boolean)
-case class FindFileResult(root: String, path: String, exist: Boolean)
+case class CreateFileResult(root: String, path: String, success: Boolean, sourceId: String)
+case class DeleteFileResult(root: String, path: String, success: Boolean, sourceId: String)
+case class FindFileResult(root: String, path: String, exist: Boolean, sourceId: String)
+case class OpenFileResult(root: String, path: String, data:Array[Byte], sourceId: String)
+
+
+case class FileOperationException(code: Int, path: String, message: String, sourceId: String)
+case class FinishedFileOperation(code: Int, path: String, sourceId: String)
+
+case class FileCommandMessage(fc: FileCommand, sourceId: String)
 
 object CommandSerializer {
     import java.nio.ByteBuffer

@@ -23,6 +23,8 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
     "file actor " should {
         "send exception message to main actor while create file actor failure" in {
 
+            val sourceId = "semtawcfaf"
+
             val props = Props.create(classOf[FileActor],
                 AppConfigurationLoader.loadFromResourceFile("/appconf.json"),
                 self)
@@ -40,14 +42,16 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val fileCommand = FileCommand(1, CommandCode.CreateFile, createFileMessageData)
 
-            fileActor ! fileCommand
+            fileActor ! FileCommandMessage(fileCommand, sourceId)
 
             Thread.sleep(1000)
 
-            expectMsg(FileOperationException(CommandCode.CreateFile, "a.txt", "expect 0 but 1"))
+            expectMsg(FileOperationException(CommandCode.CreateFile, "a.txt", "expect 0 but 1", sourceId))
         }
 
         "be able to tell if file exists" in {
+            val sourceId = "battife"
+
             val appConfig = AppConfigurationLoader.loadFromResourceFile("/appconf.json")
             val props = Props.create(classOf[FileActor],
                 appConfig,
@@ -62,9 +66,11 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val findFileACommand = FileCommand(2, CommandCode.FindFile, findFileAMessageData)
 
-            fileActor ! findFileACommand
+            fileActor ! FileCommandMessage(findFileACommand, sourceId)
 
-            val findFileAResult = FindFileResult(appConfig.getString("fs-root").get, "a.txt", true)
+            val root = Utils.parseRoot(appConfig.getString("fs-root").get)
+
+            val findFileAResult = FindFileResult(root, "a.txt", true, sourceId)
 
             expectMsg(findFileAResult)
 
@@ -76,9 +82,9 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val findFileBCommand = FileCommand(3, CommandCode.FindFile, findFileBMessageData)
 
-            fileActor ! findFileBCommand
+            fileActor ! FileCommandMessage(findFileBCommand, sourceId)
 
-            val findFileBResult = FindFileResult(appConfig.getString("fs-root").get, "b.txt", false)
+            val findFileBResult = FindFileResult(root, "b.txt", false, sourceId)
 
             Thread.sleep(1000)
 
@@ -86,6 +92,9 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
         }
 
         "create a file and find it and open it" in {
+
+            val sourceId = "cafafiaoi";
+
             val fileData1 = "hello akka".getBytes
             val fileData2 = "hello scala".getBytes
 
@@ -125,16 +134,18 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
                 .build()
                 .toByteArray
             val deleteFileCommand = FileCommand(6, CommandCode.DeleteFile, deleteFileMessageData)
-            fileActor ! deleteFileCommand
+            fileActor ! FileCommandMessage(deleteFileCommand, sourceId)
 
-            val deleteFileResult = DeleteFileResult(appConfig.getString("fs-root").get, "aa.txt", true)
+            val root = Utils.parseRoot(appConfig.getString("fs-root").get)
+
+            val deleteFileResult = DeleteFileResult(root, "aa.txt", true, sourceId)
             Thread.sleep(1000)
             expectMsg(deleteFileResult)
 
-            fileActor ! createFileCommand1
-            fileActor ! createFileCommand2
+            fileActor ! FileCommandMessage(createFileCommand1, sourceId)
+            fileActor ! FileCommandMessage(createFileCommand2, sourceId)
 
-            val createFileResult = CreateFileResult(appConfig.getString("fs-root").get, "aa.txt", true)
+            val createFileResult = CreateFileResult(root, "aa.txt", true, sourceId)
 
             Thread.sleep(1000)
 
@@ -147,9 +158,9 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val findFileACommand = FileCommand(7, CommandCode.FindFile, findFileAMessageData)
 
-            fileActor ! findFileACommand
+            fileActor ! FileCommandMessage(findFileACommand, sourceId)
 
-            val findFileAResult = FindFileResult(appConfig.getString("fs-root").get, "aa.txt", true)
+            val findFileAResult = FindFileResult(root, "aa.txt", true, sourceId)
 
             Thread.sleep(1000)
 
@@ -161,12 +172,10 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
                 .toByteArray
             val openFileCommand = FileCommand(8, CommandCode.OpenFile, openFileMessageData)
 
-            fileActor ! openFileCommand
+            fileActor ! FileCommandMessage(openFileCommand, sourceId)
 
-
-            val totalLength = fileData1.length + fileData2.length
             expectMsgPF(2 second,"")({
-                case x: OpenFile.OpenFileMessage if (x.getContentLength == totalLength) =>
+                case x: OpenFileResult if (x.sourceId.equalsIgnoreCase(sourceId)) =>
                     println(x)
             })
         }

@@ -1,5 +1,5 @@
 {
   "listen-on":"0.0.0.0:6000",
   "export-on":"127.0.0.1:6001",
-  "fs-root":"/Users/chengyongqiao/fs"
+  "fs-root":"~/fs"
 }
