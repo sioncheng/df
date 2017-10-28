@@ -40,13 +40,20 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
             ffo.code match {
                 case CommandCode.CreateFile =>
                     removeCreateFileActor(ffo)
+                case CommandCode.OpenFile =>
+                    removeOpenFileActor(ffo)
             }
-        case cfr : CreateFileResult =>
-            createFileActorSource.get(cfr.sourceId).head ! cfr
-        case ofr : OpenFileResult =>
-            openFileActorSource.get(ofr.sourceId).head ! ofr
+        case fcr: FileCommandResult =>
+            fcr.commandCode match {
+                case CommandCode.CreateFile =>
+                    createFileActorSource.get(fcr.sourceId).head ! fcr
+                case CommandCode.OpenFile =>
+                    openFileActorSource.get(fcr.sourceId).head ! fcr
+                case x =>
+                    logger.error(s"cant deal with file command result ${x}")
+            }
         case x =>
-            logger.info(s"received $x")
+            logger.warning(s"received unknown command $x")
     }
 
 
@@ -81,24 +88,22 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
                         self,
                         sourceId)
                     val createFileActor = context.actorOf(props)
-                    createFileActors.put(sourceId, createFileActor)
+                    createFileActors.put(createFileMessage.getPath, createFileActor)
                     creatingFilePathSet.add(createFileMessage.getPath)
                     createFileActorSource.put(sourceId, sender())
                 }
-                createFileActors.get(sourceId).head ! createFileMessage
+                createFileActors.get(createFileMessage.getPath).head ! createFileMessage
             case CommandCode.DeleteFile =>
                 val deleteFileMessage = DeleteFile.DeleteFileMessage.parseFrom(fc.data)
                 val file = new File(root, deleteFileMessage.getPath)
-                sender() ! DeleteFileResult(root, deleteFileMessage.getPath, file.delete(), sourceId)
+                sender() ! FileCommandResult(CommandCode.DeleteFile, root, deleteFileMessage.getPath, file.delete(), sourceId, None)
             case CommandCode.FindFile =>
                 val findFileMessage = FilePath.FilePathMessage.parseFrom(fc.data)
                 val file = new File(root, findFileMessage.getPath)
-                sender() ! FindFileResult(root, findFileMessage.getPath, file.exists(), sourceId)
+                sender() ! FileCommandResult(CommandCode.FindFile, root, findFileMessage.getPath, file.exists(), sourceId, None)
             case CommandCode.OpenFile =>
-                println("open file command")
                 val filePathMessage = FilePath.FilePathMessage.parseFrom(fc.data)
                 if (false == openFileActors.contains(sourceId)) {
-                    println("create open file actor")
                     val openFileMessage = FilePath.FilePathMessage.parseFrom(fc.data)
                     val props = Props.create(classOf[OpenFileActor],
                         root,
@@ -121,9 +126,7 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
         val createFileActor = createFileActors.get(ffo.path).get
         context.stop(createFileActor)
         createFileActors.remove(ffo.path)
-
         createFileActorSource.remove(ffo.sourceId)
-
         creatingFilePathSet.remove(ffo.path)
     }
 
@@ -131,7 +134,6 @@ class FileActor(val appConf: AppConfiguration, val mainActor: ActorRef) extends 
         val openFileActor = openFileActors.get(ffo.path).get
         context.stop(openFileActor)
         openFileActors.remove(ffo.path)
-
         openFileActorSource.remove(ffo.sourceId)
     }
 
@@ -157,9 +159,9 @@ class CreateFileActor(root: String, path: String, parent: ActorRef, sourceId: St
 
     override def receive: Receive = {
         case createFileMessage: CreateFile.CreateFileMessage =>
-
             if (createFileMessage.getPartitionNo() != expectPartition) {
                 val message = s"expect ${expectPartition} but ${createFileMessage.getPartitionNo}"
+                logger.error(message)
                 throw new IllegalCreateFileMessageException(path, message, sourceId)
             }
 
@@ -183,7 +185,7 @@ class CreateFileActor(root: String, path: String, parent: ActorRef, sourceId: St
             } catch {
                 case e: IOException =>
                     logger.error(s"create ${path} error ${e.getMessage}")
-                    sender() ! CreateFileResult(root, path, false, sourceId)
+                    sender() ! FileCommandResult(CommandCode.CreateFile, root, path, false, sourceId, None)
                     parent ! IllegalCreateFileMessageException(path, e.getMessage, sourceId)
             }
 
@@ -192,8 +194,7 @@ class CreateFileActor(root: String, path: String, parent: ActorRef, sourceId: St
 
             if (expectPartition == createFileMessage.getPartitions) {
                 logger.info(s"finished write file ${createFileMessage.getPath}")
-
-                sender() ! CreateFileResult(root, path, true, sourceId)
+                sender() ! FileCommandResult(CommandCode.CreateFile, root, path, true, sourceId, None)
                 parent ! FinishedFileOperation(CommandCode.CreateFile, path, sourceId)
             }
         case x =>
@@ -240,7 +241,7 @@ class OpenFileActor(root: String, path: String, parent: ActorRef, sourceId: Stri
                     .build()
                     .toByteArray
 
-                sender() ! OpenFileResult(root, path, data, sourceId)
+                sender() ! FileCommandResult(CommandCode.OpenFile, root, path,true, sourceId, Some(data))
 
                 partition = partition + 1
             }

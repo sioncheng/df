@@ -70,7 +70,7 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val root = Utils.parseRoot(appConfig.getString("fs-root").get)
 
-            val findFileAResult = FindFileResult(root, "a.txt", true, sourceId)
+            val findFileAResult = FileCommandResult(CommandCode.FindFile, root, "a.txt", true, sourceId, None)
 
             expectMsg(findFileAResult)
 
@@ -84,7 +84,7 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(findFileBCommand, sourceId)
 
-            val findFileBResult = FindFileResult(root, "b.txt", false, sourceId)
+            val findFileBResult = FileCommandResult(CommandCode.FindFile, root, "b.txt", false, sourceId, None)
 
             Thread.sleep(1000)
 
@@ -138,14 +138,14 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val root = Utils.parseRoot(appConfig.getString("fs-root").get)
 
-            val deleteFileResult = DeleteFileResult(root, "aa.txt", true, sourceId)
+            val deleteFileResult = FileCommandResult(CommandCode.DeleteFile, root, "aa.txt", true, sourceId, None)
             Thread.sleep(1000)
             expectMsg(deleteFileResult)
 
             fileActor ! FileCommandMessage(createFileCommand1, sourceId)
             fileActor ! FileCommandMessage(createFileCommand2, sourceId)
 
-            val createFileResult = CreateFileResult(root, "aa.txt", true, sourceId)
+            val createFileResult = FileCommandResult(CommandCode.CreateFile, root, "aa.txt", true, sourceId, None)
 
             Thread.sleep(1000)
 
@@ -160,7 +160,7 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(findFileACommand, sourceId)
 
-            val findFileAResult = FindFileResult(root, "aa.txt", true, sourceId)
+            val findFileAResult = FileCommandResult(CommandCode.FindFile, root, "aa.txt", true, sourceId, None)
 
             Thread.sleep(1000)
 
@@ -175,7 +175,7 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
             fileActor ! FileCommandMessage(openFileCommand, sourceId)
 
             expectMsgPF(2 second,"")({
-                case x: OpenFileResult if (x.sourceId.equalsIgnoreCase(sourceId)) =>
+                case x: FileCommandResult if (x.sourceId.equalsIgnoreCase(sourceId)) =>
                     println(x)
             })
         }
