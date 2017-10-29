@@ -4,7 +4,7 @@ import akka.actor.{ActorSystem, Props}
 import akka.io.Tcp.Received
 import akka.testkit.{ImplicitSender, TestKit}
 import akka.util.ByteString
-import com.github.sioncheng.prtl.{CommandCode, CommandSerializer, FileCommand}
+import com.github.sioncheng.prtl.{CommandCode, FileCommandSerializer, FileCommand}
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
 class ConnectionHandlerSpec() extends TestKit(ActorSystem("ConnectionHandlerSpec"))
@@ -27,7 +27,7 @@ class ConnectionHandlerSpec() extends TestKit(ActorSystem("ConnectionHandlerSpec
 
             val createFile = FileCommand(1, CommandCode.CreateFile, commandData)
 
-            val netBytes = CommandSerializer.toBytes(createFile)
+            val netBytes = FileCommandSerializer.toBytes(createFile)
 
             connectonHandler ! Received(ByteString.fromArray(netBytes, 0, 5))
             connectonHandler ! Received(ByteString.fromArray(netBytes, 5, netBytes.length - 5))

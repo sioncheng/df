@@ -4,7 +4,7 @@ import akka.actor.{ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestKit}
 import com.github.sioncheng.cnf.AppConfigurationLoader
 import com.github.sioncheng.prtl._
-import com.github.sioncheng.prtl.outer.{CreateFile, DeleteFile, FilePath, OpenFile}
+import com.github.sioncheng.prtl.outer._
 import com.google.protobuf.ByteString
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 
@@ -59,7 +59,7 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val fileActor = system.actorOf(props)
 
-            val findFileAMessageData = FilePath.FilePathMessage.newBuilder()
+            val findFileAMessageData = FindFile.FindFileMessage.newBuilder()
                 .setPath("a.txt")
                 .build()
                 .toByteArray
@@ -68,14 +68,15 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(findFileACommand, sourceId)
 
-            val root = Utils.parseRoot(appConfig.getString("fs-root").get)
+            expectMsgPF(2 second,"") ({
+                case x : FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId)
+                            && x.fc.commandCode == CommandCode.FindFileResult) =>
+                    println("find file result success")
+            })
 
-            val findFileAResult = FileCommandResult(CommandCode.FindFile, root, "a.txt", true, sourceId, None)
 
-            expectMsg(findFileAResult)
-
-
-            val findFileBMessageData = FilePath.FilePathMessage.newBuilder()
+            val findFileBMessageData = FindFile.FindFileMessage.newBuilder()
                 .setPath("b.txt")
                 .build()
                 .toByteArray
@@ -84,43 +85,18 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(findFileBCommand, sourceId)
 
-            val findFileBResult = FileCommandResult(CommandCode.FindFile, root, "b.txt", false, sourceId, None)
-
-            Thread.sleep(1000)
-
-            expectMsg(findFileBResult)
+            expectMsgPF(2 second,"") ({
+                case x : FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId) && x.fc.commandCode == CommandCode.FindFileResult) =>
+                    println(x)
+            })
         }
 
         "create a file and find it and open it" in {
 
             val sourceId = "cafafiaoi";
 
-            val fileData1 = "hello akka".getBytes
-            val fileData2 = "hello scala".getBytes
 
-            val createFileMessageData1 = CreateFile.CreateFileMessage.newBuilder()
-                .setPath("aa.txt")
-                .setContentLength(fileData1.length + fileData2.length)
-                .setPartitions(2)
-                .setPartitionNo(0)
-                .setPartitionLength(fileData1.length)
-                .setData(ByteString.copyFrom(fileData1))
-                .build()
-                .toByteArray
-
-            val createFileCommand1 = FileCommand(4, CommandCode.CreateFile, createFileMessageData1)
-
-            val createFileMessageData2 = CreateFile.CreateFileMessage.newBuilder()
-                .setPath("aa.txt")
-                .setContentLength(fileData1.length + fileData2.length)
-                .setPartitions(2)
-                .setPartitionNo(1)
-                .setPartitionLength(fileData2.length)
-                .setData(ByteString.copyFrom(fileData2))
-                .build()
-                .toByteArray
-
-            val createFileCommand2 = FileCommand(5, CommandCode.CreateFile, createFileMessageData2)
 
             val appConfig = AppConfigurationLoader.loadFromResourceFile("/appconf.json")
             val props = Props.create(classOf[FileActor],
@@ -138,20 +114,60 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             val root = Utils.parseRoot(appConfig.getString("fs-root").get)
 
-            val deleteFileResult = FileCommandResult(CommandCode.DeleteFile, root, "aa.txt", true, sourceId, None)
-            Thread.sleep(1000)
-            expectMsg(deleteFileResult)
+            val expectDeleteFileResult: (Array[Byte] => Boolean) = (data: Array[Byte]) => {
+                val deleteFileResult = DeleteFileResult.DeleteFileResultMessage.parseFrom(data)
+                deleteFileResult.getSuccess
+            }
+            expectMsgPF(2 second,"") ({
+                case x: FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId)
+                            && x.fc.commandCode == CommandCode.DeleteFileResult
+                            && expectDeleteFileResult(x.fc.data)) =>
+                    println(x)
+            })
 
+            val fileData1 = "hello akka".getBytes
+            val fileData2 = " hello scala".getBytes
+
+            val createFileMessageData1 = CreateFile.CreateFileMessage.newBuilder()
+                    .setPath("aa.txt")
+                    .setContentLength(fileData1.length + fileData2.length)
+                    .setPartitions(2)
+                    .setPartitionNo(0)
+                    .setPartitionLength(fileData1.length)
+                    .setData(ByteString.copyFrom(fileData1))
+                    .build()
+                    .toByteArray
+
+            val createFileCommand1 = FileCommand(4, CommandCode.CreateFile, createFileMessageData1)
+
+            val createFileMessageData2 = CreateFile.CreateFileMessage.newBuilder()
+                    .setPath("aa.txt")
+                    .setContentLength(fileData1.length + fileData2.length)
+                    .setPartitions(2)
+                    .setPartitionNo(1)
+                    .setPartitionLength(fileData2.length)
+                    .setData(ByteString.copyFrom(fileData2))
+                    .build()
+                    .toByteArray
+
+            val createFileCommand2 = FileCommand(5, CommandCode.CreateFile, createFileMessageData2)
             fileActor ! FileCommandMessage(createFileCommand1, sourceId)
             fileActor ! FileCommandMessage(createFileCommand2, sourceId)
 
-            val createFileResult = FileCommandResult(CommandCode.CreateFile, root, "aa.txt", true, sourceId, None)
+            val expectCreateFileResult = (data: Array[Byte]) => {
+                val createFileResult = CreateFileResult.CreateFileResultMessage.parseFrom(data)
+                createFileResult.getSuccess
+            }
+            expectMsgPF(2 second,"") ({
+                case x: FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId)
+                            && x.fc.commandCode == CommandCode.CreateFileResult
+                            && expectCreateFileResult(x.fc.data)) =>
+                    println(x)
+            })
 
-            Thread.sleep(1000)
-
-            expectMsg(createFileResult)
-
-            val findFileAMessageData = FilePath.FilePathMessage.newBuilder()
+            val findFileAMessageData = FindFile.FindFileMessage.newBuilder()
                 .setPath("aa.txt")
                 .build()
                 .toByteArray
@@ -160,13 +176,19 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(findFileACommand, sourceId)
 
-            val findFileAResult = FileCommandResult(CommandCode.FindFile, root, "aa.txt", true, sourceId, None)
+            val expectFindFileResultA = (data: Array[Byte]) => {
+                val findFileResult = FindFileResult.FindFileResultMessage.parseFrom(data)
+                findFileResult.getSuccess
+            }
+            expectMsgPF(2 second,"") ({
+                case x: FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId)
+                            && x.fc.commandCode == CommandCode.FindFileResult
+                            && expectFindFileResultA(x.fc.data)) =>
+                    println(x)
+            })
 
-            Thread.sleep(1000)
-
-            expectMsg(findFileAResult)
-
-            val openFileMessageData = FilePath.FilePathMessage.newBuilder()
+            val openFileMessageData = OpenFile.OpenFileMessage.newBuilder()
                 .setPath("aa.txt")
                 .build()
                 .toByteArray
@@ -174,8 +196,14 @@ class TheFileActorSpec() extends TestKit(ActorSystem("file-actor-spec"))
 
             fileActor ! FileCommandMessage(openFileCommand, sourceId)
 
+            val expectOpenFileResult = (data: Array[Byte]) => {
+                val openFileResult = OpenFileResult.OpenFileResultMessage.parseFrom(data)
+                openFileResult.getData.toStringUtf8.equalsIgnoreCase("hello akka hello scala")
+            }
+
             expectMsgPF(2 second,"")({
-                case x: FileCommandResult if (x.sourceId.equalsIgnoreCase(sourceId)) =>
+                case x: FileCommandMessage
+                    if (x.sourceId.equalsIgnoreCase(sourceId) && expectOpenFileResult(x.fc.data)) =>
                     println(x)
             })
         }

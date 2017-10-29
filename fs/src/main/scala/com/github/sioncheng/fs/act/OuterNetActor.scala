@@ -9,7 +9,8 @@ import akka.io.{IO, Tcp}
 import akka.stream.ActorMaterializer
 import akka.util.ByteString
 import com.github.sioncheng.cnf.AppConfiguration
-import com.github.sioncheng.prtl.{CommandSerializer, FileCommand}
+import com.github.sioncheng.prtl.outer.CreateFileResult
+import com.github.sioncheng.prtl.{CommandCode, FileCommand, FileCommandMessage, FileCommandSerializer}
 
 import scala.collection.mutable
 
@@ -52,24 +53,40 @@ class OuterNetActor(val appConf: AppConfiguration, val mainActor: ActorRef) exte
             context.stop(self)
         case Connected(remote, local) =>
             logger.info(s"connected $remote $local")
-            clientCounter = clientCounter + 1
-            val conn = sender()
-            val clientId = s"client-${clientCounter}"
-            val props = Props.create(classOf[ConnectionHandler], conn, self, clientId)
-            val handler = system.actorOf(props)
-            connectionHandlers.put(clientId, handler)
-            conn ! Register(handler)
+            processConnected()
         case receivedCommand : ReceivedCommand =>
             logger.info(s"received command ${receivedCommand.command.commandCode}")
             mainActor ! receivedCommand
         case ConnectionHandlerPeerClosed(clientId) =>
             connectionHandlers.remove(clientId)
+        case fcr: FileCommandMessage =>
+            logger.info(s"file command result $fcr")
+            processFileCommandResult(fcr)
         case "hello" =>
             if (bound) {
                 sender() ! "hello world"
             } else {
                 sender() ! "what?"
             }
+    }
+
+
+    private def processConnected(): Unit = {
+        clientCounter = clientCounter + 1
+        val conn = sender()
+        val clientId = s"client-${clientCounter}"
+        val props = Props.create(classOf[ConnectionHandler], conn, self, clientId)
+        val handler = system.actorOf(props)
+        connectionHandlers.put(clientId, handler)
+        conn ! Register(handler)
+    }
+
+    private def processFileCommandResult(fcr: FileCommandMessage): Unit = {
+        fcr.fc.commandCode match {
+            case CommandCode.CreateFileResult =>
+                val data = FileCommandSerializer.toBytes(fcr.fc)
+                connectionHandlers.get(fcr.sourceId).head ! data
+        }
     }
 }
 
@@ -90,6 +107,8 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef, Id: String) extends Ac
         case Received(data) =>
             logger.info(s"received ${data.utf8String}")
             parseReceivedData(data)
+        case data : Array[Byte] =>
+            conn ! Write(ByteString(data))
         case _ @ PeerClosed =>
             logger.info(s"peer closed $conn")
             server ! ConnectionHandlerPeerClosed(Id)
@@ -112,7 +131,7 @@ class ConnectionHandler(conn: ActorRef, server: ActorRef, Id: String) extends Ac
             var parsedIndex = receivedBytes.position()
             var shouldLoopParse: Boolean = true
             while(shouldLoopParse) {
-                val parsedCommand = CommandSerializer.parseFrom(backBytes, parsedIndex, size)
+                val parsedCommand = FileCommandSerializer.parseFrom(backBytes, parsedIndex, size)
                 if (parsedCommand.isEmpty || parsedCommand.head._1.commandCode == 0) {
                     shouldLoopParse = false
                     shouldLoopCopy = false

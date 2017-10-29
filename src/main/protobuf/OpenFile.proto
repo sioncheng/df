@@ -4,9 +4,4 @@ option java_outer_classname = "OpenFile";
 
 message OpenFileMessage {
     required string path = 1;
-    required int64 contentLength = 2;
-    required int32 partitions = 3;
-    required int32 partitionNo = 4;
-    required int32 partitionLength = 5;
-    required bytes data = 6;
 }

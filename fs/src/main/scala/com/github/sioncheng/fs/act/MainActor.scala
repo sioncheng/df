@@ -75,6 +75,9 @@ class MainActor(appConf: AppConfiguration) extends Actor {
             } else {
                 logger.warning(s"not leading , cant process ${rc.command.commandCode}")
             }
+        case fcr : FileCommandMessage =>
+            logger.info(s"file command result ${fcr}")
+            outerNetActor ! fcr
         // file operation thing
         case x =>
             logger.info(s"what ? $x")

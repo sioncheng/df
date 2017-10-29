@@ -1,8 +1,8 @@
 syntax = "proto2";
 option java_package = "com.github.sioncheng.prtl.outer";
-option java_outer_classname = "FilePathResult";
+option java_outer_classname = "FindFileResult";
 
-message FilePathResultMessage {
+message FindFileResultMessage {
     required string path = 1;
     required bool success = 2;
 }
